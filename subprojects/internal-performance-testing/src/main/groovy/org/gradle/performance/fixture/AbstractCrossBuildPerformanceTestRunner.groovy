@@ -23,7 +23,6 @@ import org.gradle.internal.os.OperatingSystem
 import org.gradle.performance.results.CrossBuildPerformanceResults
 import org.gradle.performance.results.DataReporter
 import org.gradle.performance.results.MeasuredOperationList
-import org.gradle.performance.results.PerformanceTestResult
 import org.gradle.performance.results.ResultsStore
 import org.gradle.performance.util.Git
 import org.gradle.util.GradleVersion
