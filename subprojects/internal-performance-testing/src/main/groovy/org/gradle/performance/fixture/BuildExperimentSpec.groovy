@@ -48,8 +48,8 @@ abstract class BuildExperimentSpec {
                         Integer invocationCount,
                         BuildExperimentListener listener,
                         InvocationCustomizer invocationCustomizer,
-                        ImmutableList<Function<InvocationSettings, BuildMutator>> buildMutators,
-                        ImmutableList<String> measuredBuildOperations
+                        List<Function<InvocationSettings, BuildMutator>> buildMutators,
+                        List<String> measuredBuildOperations
     ) {
         this.displayName = displayName
         this.projectName = projectName
@@ -58,8 +58,8 @@ abstract class BuildExperimentSpec {
         this.invocationCount = invocationCount
         this.listener = listener
         this.invocationCustomizer = invocationCustomizer
-        this.buildMutators = buildMutators
-        this.measuredBuildOperations = measuredBuildOperations
+        this.buildMutators = ImmutableList.copyOf(buildMutators)
+        this.measuredBuildOperations = ImmutableList.copyOf(measuredBuildOperations)
     }
 
     abstract BuildDisplayInfo getDisplayInfo()
@@ -68,16 +68,21 @@ abstract class BuildExperimentSpec {
 
     interface Builder {
         String getDisplayName()
+
         String getProjectName()
+
         void setProjectName(String projectName)
 
         File getWorkingDirectory()
+
         void setWorkingDirectory(File workingDirectory)
 
         BuildExperimentListener getListener()
+
         void setListener(BuildExperimentListener listener)
 
         InvocationCustomizer getInvocationCustomizer()
+
         void setInvocationCustomizer(InvocationCustomizer invocationCustomizer)
 
         List<Function<InvocationSettings, BuildMutator>> getBuildMutators()
