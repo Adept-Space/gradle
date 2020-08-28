@@ -19,6 +19,7 @@ package org.gradle.performance.regression.buildcache
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
 import org.gradle.internal.hash.Hashing
+import org.gradle.performance.fixture.AbstractCrossVersionPerformanceTestRunner
 import org.gradle.performance.generator.JavaTestProject
 import org.gradle.performance.mutator.ApplyAbiChangeToJavaSourceFileMutator
 import org.gradle.performance.mutator.ApplyNonAbiChangeToJavaSourceFileMutator
@@ -43,7 +44,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
     }
 
     def "clean #tasks on #testProject with remote http cache"() {
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         protocol = "http"
         pushToRemote = true
         runner.addBuildMutator { cleanLocalCache() }
@@ -59,49 +60,9 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
         [testProject, tasks] << scenarios
     }
 
-//    def "clean #tasks on #testProject with remote https cache"() {
-//        setupTestProject(testProject, tasks)
-//        firstWarmupWithCache = 2 // Do one run without the cache to populate the dependency cache from maven central
-//        protocol = "https"
-//        pushToRemote = true
-//        runner.addBuildMutator { cleanLocalCache() }
-//        runner.addBuildMutator { touchCacheArtifacts() }
-//
-//        def keyStore = TestKeyStore.init(temporaryFolder.file('ssl-keystore'))
-//        keyStore.enableSslWithServerCert(buildCacheServer)
-//
-//        runner.addInvocationCustomizer(new InvocationCustomizer() {
-//            @Override
-//            <T extends InvocationSpec> T customize(BuildExperimentInvocationInfo invocationInfo, T invocationSpec) {
-//                GradleInvocationSpec gradleInvocation = invocationSpec as GradleInvocationSpec
-//                if (isRunWithCache(invocationInfo)) {
-//                    gradleInvocation.withBuilder().gradleOpts(*keyStore.serverAndClientCertArgs).build() as T
-//                } else {
-//                    gradleInvocation.withBuilder()
-//                    // We need a different daemon for the other runs because of the certificate Gradle JVM args
-//                    // so we disable the daemon completely in order not to confuse the performance test
-//                        .useDaemon(false)
-//                    // We run one iteration without the cache to download artifacts from Maven central.
-//                    // We can't download with the cache since we set the trust store and Maven central uses https.
-//                        .args("--no-build-cache")
-//                        .build() as T
-//                }
-//            }
-//        })
-//
-//        when:
-//        def result = runner.run()
-//
-//        then:
-//        result.assertCurrentVersionHasNotRegressed()
-//
-//        where:
-//        [testProject, tasks] << scenarios
-//    }
-
     def "clean #tasks on #testProject with empty local cache"() {
         given:
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         runner.warmUpRuns = 6
         runner.runs = 8
         pushToRemote = false
@@ -119,7 +80,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
 
     def "clean #tasks on #testProject with empty remote http cache"() {
         given:
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         runner.warmUpRuns = 6
         runner.runs = 8
         pushToRemote = true
@@ -141,7 +102,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
         if (!parallel) {
             runner.previousTestIds = ["clean $tasks on $testProject with local cache"]
         }
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         if (parallel) {
             runner.args += "--parallel"
         }
@@ -164,7 +125,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
 
     def "clean #tasks for abi change on #testProject with local cache (parallel: true)"() {
         given:
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         runner.addBuildMutator { new ApplyAbiChangeToJavaSourceFileMutator(it.projectDir, testProject.config.fileToChangeByScenario['assemble']) }
         runner.args += "--parallel"
         pushToRemote = false
@@ -184,7 +145,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
 
     def "clean #tasks for non-abi change on #testProject with local cache (parallel: true)"() {
         given:
-        setupTestProject(testProject, tasks)
+        setupTestProject(runner, testProject, tasks)
         runner.addBuildMutator { new ApplyNonAbiChangeToJavaSourceFileMutator(it.projectDir, testProject.config.fileToChangeByScenario['assemble']) }
         runner.args += "--parallel"
         pushToRemote = false
@@ -206,9 +167,9 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
         new BuildMutator() {
             @Override
             void beforeBuild(BuildContext context) {
-                touchCacheArtifacts(cacheDir)
+                touchCacheArtifactsDir(cacheDir)
                 if (buildCacheServer.running) {
-                    touchCacheArtifacts(buildCacheServer.cacheDir)
+                    touchCacheArtifactsDir(buildCacheServer.cacheDir)
                 }
             }
         }
@@ -216,7 +177,7 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
 
     // We change the file dates inside the archives to work around unfairness caused by
     // reusing FileCollectionSnapshots based on the file dates in versions before Gradle 4.2
-    private void touchCacheArtifacts(File dir) {
+    static void touchCacheArtifactsDir(File dir) {
         def startTime = System.currentTimeMillis()
         int count = 0
         dir.eachFile { File cacheArchiveFile ->
@@ -254,14 +215,14 @@ class TaskOutputCachingJavaPerformanceTest extends AbstractTaskOutputCachingPerf
         println "Changed file dates in $count cache artifacts in $dir in ${time} ms"
     }
 
-    private def setupTestProject(JavaTestProject testProject, String tasks) {
+    static def setupTestProject(AbstractCrossVersionPerformanceTestRunner runner, JavaTestProject testProject, String tasks) {
         runner.testProject = testProject
         runner.gradleOpts = ["-Xms${testProject.daemonMemory}", "-Xmx${testProject.daemonMemory}"]
         runner.tasksToRun = tasks.split(' ') as List
         runner.cleanTasks = ["clean"]
     }
 
-    def getScenarios() {
+    static def getScenarios() {
         [
             [LARGE_MONOLITHIC_JAVA_PROJECT, 'assemble'],
             [LARGE_JAVA_MULTI_PROJECT, 'assemble']
