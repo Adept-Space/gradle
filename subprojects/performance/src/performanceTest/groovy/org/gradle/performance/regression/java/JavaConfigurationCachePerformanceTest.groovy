@@ -19,9 +19,9 @@ package org.gradle.performance.regression.java
 import org.gradle.initialization.StartParameterBuildOptions.ConfigurationCacheOption
 import org.gradle.performance.AbstractCrossVersionGradleProfilerPerformanceTest
 import org.gradle.performance.categories.PerformanceRegressionTest
-import org.gradle.performance.fixture.BuildExperimentInvocationInfo
-import org.gradle.performance.fixture.BuildExperimentListener
-import org.gradle.performance.measure.MeasuredOperation
+import org.gradle.profiler.BuildContext
+import org.gradle.profiler.BuildMutator
+import org.gradle.profiler.InvocationSettings
 import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
@@ -42,7 +42,6 @@ class JavaConfigurationCachePerformanceTest extends AbstractCrossVersionGradlePr
 
     @Unroll
     def "assemble on #testProject #action configuration cache state with #daemon daemon"() {
-
         given:
         runner.targetVersions = ["6.7-20200827220028+0000"]
         runner.minimumBaseVersion = "6.6"
@@ -52,7 +51,7 @@ class JavaConfigurationCachePerformanceTest extends AbstractCrossVersionGradlePr
 
         and:
         runner.useDaemon = daemon == hot
-        runner.addBuildExperimentListener(listenerFor(action))
+        runner.addBuildMutator { listenerFor(it, action) }
         runner.warmUpRuns = daemon == hot ? 20 : 1
         runner.runs = daemon == hot ? 60 : 25
 
@@ -74,8 +73,31 @@ class JavaConfigurationCachePerformanceTest extends AbstractCrossVersionGradlePr
 //        SMALL_JAVA_MULTI_PROJECT_NO_BUILD_SRC | cold   | storing
     }
 
-    private BuildExperimentListener listenerFor(String action) {
-        return configurationCacheInvocationListenerFor(action, stateDirectory)
+    private BuildMutator listenerFor(InvocationSettings invocationSettings, String action) {
+        return new BuildMutator() {
+            @Override
+            void beforeBuild(BuildContext context) {
+                if (action == storing) {
+                    stateDirectory.deleteDir()
+                }
+            }
+
+            @Override
+            void afterBuild(BuildContext context, Throwable error) {
+                if (context.iteration > 1) {
+                    def tag = action == storing
+                        ? "Calculating task graph as no configuration cache is available"
+                        : "Reusing configuration cache"
+                    File buildLog = new File(invocationSettings.projectDir, "log.txt")
+                    def found = Files.lines(buildLog.toPath()).withCloseable { lines ->
+                        lines.anyMatch { line -> line.contains(tag) }
+                    }
+                    if (!found) {
+                        assertTrue("Configuration cache log '$tag' not found in '$buildLog'\n\n$buildLog.text", found)
+                    }
+                }
+            }
+        }
     }
 
     static String loading = "loading"
@@ -83,29 +105,4 @@ class JavaConfigurationCachePerformanceTest extends AbstractCrossVersionGradlePr
     static String hot = "hot"
     static String cold = "cold"
 
-    static BuildExperimentListener configurationCacheInvocationListenerFor(String action, File stateDirectory) {
-        return new BuildExperimentListener() {
-            @Override
-            void beforeInvocation(BuildExperimentInvocationInfo invocationInfo) {
-                if (action == storing) {
-                    stateDirectory.deleteDir()
-                }
-            }
-
-            @Override
-            void afterInvocation(BuildExperimentInvocationInfo invocationInfo, MeasuredOperation operation, BuildExperimentListener.MeasurementCallback measurementCallback) {
-                if (invocationInfo.iterationNumber > 1) {
-                    def tag = action == storing
-                        ? "Calculating task graph as no configuration cache is available"
-                        : "Reusing configuration cache"
-                    def found = Files.lines(invocationInfo.buildLog.toPath()).withCloseable { lines ->
-                        lines.anyMatch { line -> line.contains(tag) }
-                    }
-                    if (!found) {
-                        assertTrue("Configuration cache log '$tag' not found in '$invocationInfo.buildLog'\n\n$invocationInfo.buildLog.text", found)
-                    }
-                }
-            }
-        }
-    }
 }
